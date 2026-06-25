@@ -1,0 +1,1904 @@
+{
+  "name": "Extractor de Facturas - Telegram + Mistral v3 (obra → tipo)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -720,
+        1200
+      ],
+      "id": "86167acb-213f-4236-a5f6-551965dcdcfe",
+      "name": "Bot Tetris1",
+      "webhookId": "959b87d6-3016-43d3-90d5-aa24627dc828",
+      "credentials": {
+        "telegramApi": {
+          "id": "7XD1V0MyRbJv632v",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ════════════════════════════════════════════════════\n// ⚙️  CONFIGURACIÓN — editá solo este nodo al instalar\n// ════════════════════════════════════════════════════\nreturn [{ json: {\n\n  // ── n8n DataTable (estado de sesión de usuarios) ──\n  tablaEstadoUsuarioId: \"lQx8OcjpMQhcePpg\",\n\n  // ── Google Drive ──────────────────────────────────\n  // driveId: \"My Drive\" para drive personal; para Shared Drive ponés el ID del drive\n  driveId: \"My Drive\",\n  carpetaTempDriveId: \"1q6QGqzRjJ5v6tBBL8maq25ZGEHJ0ZeyU\",\n\n  // ── Google Sheets: planilla de obras activas ─────\n  sheetObrasId: \"1_HaEtyhS5SOo6RmVqhSIkXcNRNuNQsrcBr8ngSozV9s\",\n\n  // ── Modelo de IA (Mistral) ────────────────────────\n  // Opciones: \"mistral-ocr-latest\", \"pixtral-large-latest\", \"pixtral-12b-2409\"\n  modeloMistralOcr:  \"mistral-ocr-latest\",\n  // Opciones chat: \"mistral-large-latest\", \"mistral-small-latest\", \"open-mixtral-8x22b\"\n  modeloMistralChat: \"mistral-large-latest\",\n\n  // ── Sesión ────────────────────────────────────────\n  // Minutos de inactividad antes de resetear la sesión del usuario\n  tiempoSesionMin: 10,\n\n  // ── Lógica de negocio ─────────────────────────────\n  // Caja que se usa por defecto para egresos e ingresos\n  cajaDefault: \"CCH\",\n\n  // ── Acceso: Telegram user IDs permitidos ─────────\n  // Dejá el array vacío [] para permitir a todos\n  usuariosPermitidos: [],\n\n  // ── Columnas a escribir en Google Sheets ─────────\n  // Para agregar una columna nueva: sumá un objeto { columna, campo }\n  // - columna: nombre exacto del encabezado en la sheet\n  // - campo:   nombre del campo en los datos extraídos de la factura\n  //            Campos disponibles: tipo, caja, tarea, concepto, proveedor,\n  //            reciboNro, fecha, ars, id, or, comprobanteUrl\n  // - esHyperlink (opcional): true → genera =HYPERLINK(url, texto)\n  //   requiere también definir campoUrl con el campo que tiene la URL\n  columnasGasto: [\n    { columna: \"TIPO\",      campo: \"tipo\" },\n    { columna: \"CAJA\",      campo: \"caja\" },\n    { columna: \"TAREA\",     campo: \"tarea\" },\n    { columna: \"CONCEPTO\",  campo: \"concepto\" },\n    { columna: \"PROVEEDOR\", campo: \"proveedor\" },\n    { columna: \"RECIBO Nº\", campo: \"reciboNro\", esHyperlink: true, campoUrl: \"comprobanteUrl\" },\n    { columna: \"FECHA\",     campo: \"fecha\" },\n    { columna: \"ARS\",       campo: \"ars\" },\n    { columna: \"ID\",        campo: \"id\" },\n    { columna: \"OR\",        campo: \"or\" },\n  ],\n\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -608,
+        1200
+      ],
+      "id": "cfg0000000-0000-0000-0000-000000000001",
+      "name": "⚙️ Config"
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $('Bot Tetris1').first().json.message;\nreturn [{ json: {\n  texto: msg.text || msg.caption || \"\",\n  chatId: String(msg.chat.id),\n  message: msg\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -496,
+        1200
+      ],
+      "id": "ca99a568-e470-44d2-bac2-ddcdf32d56f9",
+      "name": "Preparar entrada"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "={{ $('⚙️ Config').first().json.tablaEstadoUsuarioId }}",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chatId",
+              "keyValue": "={{ $json.message.chat.id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -304,
+        1200
+      ],
+      "id": "ab94261f-c67e-46b4-adb0-77bde8f19545",
+      "name": "Consultar estado usuario",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json || {};\nconst step = input.step || \"idle\";\nlet expired = false;\nif (input.updatedAt && step !== \"idle\") {\n  const diffMin = (Date.now() - new Date(input.updatedAt).getTime()) / 60000;\n  if (diffMin > $('⚙️ Config').first().json.tiempoSesionMin) expired = true;\n}\nreturn [{ json: { ...input, step: expired ? \"idle\" : step, expired } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        1200
+      ],
+      "id": "be010b43-38cf-439a-afed-c8018648962a",
+      "name": "Preparar estado"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "exp-check-001",
+              "leftValue": "={{ $json.expired === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        112,
+        1200
+      ],
+      "id": "aaa00002-0000-0000-0000-000000000002",
+      "name": "IF sesión expirada"
+    },
+    {
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "value": "={{ $('⚙️ Config').first().json.tablaEstadoUsuarioId }}",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chatId",
+              "keyValue": "={{ $('Bot Tetris1').item.json.message.chat.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        336,
+        1360
+      ],
+      "id": "aaa00003-0000-0000-0000-000000000003",
+      "name": "Limpiar estado expirado"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Bot Tetris1').item.json.message.chat.id }}",
+        "text": "⏱️ La sesión anterior expiró (más de 10 min). Enviá la foto de la factura para comenzar.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "none"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        560,
+        1360
+      ],
+      "id": "aaa00001-0000-0000-0000-000000000001",
+      "name": "Aviso sesión expirada",
+      "webhookId": "aaa00001-0000-0000-0000-000000000001",
+      "credentials": {
+        "telegramApi": {
+          "id": "7XD1V0MyRbJv632v",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{\n  $json.step === undefined || $json.step === null || $json.step === 'idle' ? 0 :\n  $json.step === 'waiting_assignment' ? 1 :\n  $json.step === 'waiting_type' ? 2 :\n  0\n}}"
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        336,
+        1200
+      ],
+      "id": "v2000001-0000-0000-0000-000000000001",
+      "name": "Router Estado v2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "foto-check-v2",
+              "leftValue": "={{ !!$(\"Preparar entrada\").item.json.message.photo }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        560,
+        960
+      ],
+      "id": "v2000002-0000-0000-0000-000000000002",
+      "name": "IF tiene foto v2"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Bot Tetris1').item.json.message.chat.id }}",
+        "text": "👋 Enviá una foto de la factura o comprobante para cargarlo.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "none"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        784,
+        1100
+      ],
+      "id": "v2000003-0000-0000-0000-000000000003",
+      "name": "Mensaje bienvenida",
+      "webhookId": "v2000003-0000-0000-0000-000000000003",
+      "credentials": {
+        "telegramApi": {
+          "id": "7XD1V0MyRbJv632v",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "or",
+          "conditions": [
+            {
+              "id": "perm-open-or-list",
+              "leftValue": "={{ $('⚙️ Config').first().json.usuariosPermitidos.length === 0 || $('⚙️ Config').first().json.usuariosPermitidos.includes($('Bot Tetris1').item.json.message.from.id.toString()) }}",
+              "operator": {
+                "name": "filter.operator.equals",
+                "operation": "equals",
+                "type": "string"
+              },
+              "rightValue": "true"
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          }
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        820
+      ],
+      "id": "6a10d659-9ac2-47bc-b54a-3d940b076590",
+      "name": "Validar permiso"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $(\"Bot Tetris1\").item.json.message.chat.id }}",
+        "text": "🔒 No tenés permisos para usar este bot. Solicitá permiso para ser incluído.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "none"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1008,
+        960
+      ],
+      "id": "8ba98474-78a5-4450-8b09-9e929e5166d5",
+      "name": "Send a text message",
+      "webhookId": "87a3eeec-dbf4-44b9-bd21-041cff09a503",
+      "credentials": {
+        "telegramApi": {
+          "id": "7XD1V0MyRbJv632v",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $('Preparar entrada').item.json.message.photo[$('Preparar entrada').item.json.message.photo.length - 1].file_id }}",
+        "additionalFields": {
+          "mimeType": "image/jpeg",
+          "parse_mode": "none"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1008,
+        680
+      ],
+      "id": "eb5b0cd6-1145-46ed-a007-90f712ba4ef2",
+      "name": "Get a file",
+      "webhookId": "08505663-9fad-4b07-baa5-1c6b4c160f3b",
+      "credentials": {
+        "telegramApi": {
+          "id": "7XD1V0MyRbJv632v",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "=tmp_{{ $now.toFormat(\"yyyy-MM-dd_HH-mm-ss\") }}.jpg",
+        "driveId": {
+          "__rl": true,
+          "value": "={{ $('⚙️ Config').first().json.driveId }}",
+          "mode": "list"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('⚙️ Config').first().json.carpetaTempDriveId }}",
+          "mode": "id"
+        },
+        "options": {
+          "ocrLanguage": "es",
+          "useContentAsIndexableText": true,
+          "simplifyOutput": false
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1232,
+        680
+      ],
+      "id": "1f93ef53-4439-4d2a-99f1-fca006b48f15",
+      "name": "Upload file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "hV8sl0WdQmTAcGhM",
+          "name": "Google Drive OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const upload = $input.first().json;\nconst fileData = $('Get a file').first();\nconst comprobanteUrl = upload.webViewLink || upload.webContentLink || `https://drive.google.com/file/d/${upload.id}/view`;\nreturn [{ json: { comprobanteUrl, uploadedFileId: upload.id }, binary: fileData.binary }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        680
+      ],
+      "id": "af3190da-39ac-4caa-b552-0f8d32915681",
+      "name": "Preparar contexto obra"
+    },
+    {
+      "parameters": {
+        "documentType": "image_url",
+        "options": {},
+        "model": "={{ $('⚙️ Config').first().json.modeloMistralOcr }}"
+      },
+      "type": "n8n-nodes-base.mistralAi",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        680
+      ],
+      "id": "3bbb7a54-3d8f-47bc-af3f-886af4315694",
+      "name": "Extraer texto Mistral",
+      "credentials": {
+        "mistralCloudApi": {
+          "id": "MaJOtBpc20qcQWcv",
+          "name": "Mistral Cloud account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Sos un asistente que extrae datos de facturas. Del siguiente texto extraído de una factura, identificá y devolvé en formato JSON los siguientes campos: tipo (Egreso o Ingreso), caja (CCH u otro), id, or, tarea, concepto, proveedor, reciboNro, fecha (formato YYYY-MM-DD), ars (monto numérico). Reglas importantes: El campo id debe quedar siempre vacío. El número de factura, comprobante o recibo debe ir siempre en reciboNro. Nunca pongas el número de factura en id. El campo or debe quedar vacío salvo que el usuario lo indique explícitamente. Proveedor debe ser quien emite la factura. REGLAS PARA CONCEPTO: Debe ser un resumen breve y claro, de no más de 6-8 palabras (idealmente una frase corta tipo título, sin enumerar cada ítem de la factura). No copies la lista completa de productos línea por línea. En su lugar, generalizá: identificá la categoría o el tipo de compra/servicio que predomina y nombralo de forma genérica (por ejemplo, en vez de \"5 bolsas de cemento, 10 caños de PVC, 2 latas de pintura látex y 3 pinceles\" escribí \"Materiales de construcción y pintura\"; en vez de \"Notebook Lenovo, mouse inalámbrico y funda\" escribí \"Equipamiento informático\"; en vez de \"Mano de obra colocación de pisos sector A y B\" escribí \"Colocación de pisos\"). Si la factura tiene un solo ítem o concepto principal, simplemente nombralo de forma directa y concisa. El objetivo es que con una sola mirada se entienda de qué se trata el gasto, sin necesidad de leer la factura completa. REGLAS PARA TAREA (elegí siempre uno de estos dos valores: \"Materiales\" o \"Ejecución\"): La pregunta clave es qué se está pagando: un OBJETO/PRODUCTO o un TRABAJO/SERVICIO realizado por alguien. - \"Materiales\": usalo cuando la factura corresponde a la COMPRA o ADQUISICIÓN de un bien físico, objeto, producto, insumo, herramienta o equipo, sin importar el rubro (por ejemplo: vidrios, madera, sanitarios, hierro, cemento, pintura, ferretería, computadoras, electrodomésticos, muebles, librería, repuestos, indumentaria, etc.). Si el proveedor es una tienda, ferretería, distribuidora o casa de venta de productos, casi siempre es \"Materiales\". - \"Ejecución\": usalo SOLO cuando se está pagando por mano de obra, instalación, colocación, montaje, reparación, alquiler de servicio, flete, honorarios profesionales o cualquier trabajo/servicio prestado por una persona o empresa (no la compra de un objeto). Si tenés dudas y la factura es por la compra de algo tangible (un producto, equipo o artículo), elegí \"Materiales\"; reservá \"Ejecución\" exclusivamente para cuando el concepto describe explícitamente un servicio o trabajo realizado. REGLAS PARA TIPO Y MONTO: Siempre devolvé tipo como \"Egreso\" y ars como número positivo (el sistema ajustará el signo según el tipo de operación). DETECCIÓN DE FACTURA POCO CLARA: Si la imagen es muy borrosa, ilegible, o no podés identificar con confianza al menos el proveedor Y el monto, agregá el campo `\"unclear\": true` al JSON devuelto. Si la imagen es legible, omití ese campo o poné `\"unclear\": false`. Texto de la factura: {{ $json.extractedText }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1904,
+        680
+      ],
+      "id": "8b9ac36e-5f4f-4319-8c9e-6469826b4548",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {},
+        "model": "={{ $('⚙️ Config').first().json.modeloMistralChat }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatMistralCloud",
+      "typeVersion": 1,
+      "position": [
+        1984,
+        900
+      ],
+      "id": "8901bfbc-7b88-461e-831b-9b644a29cf77",
+      "name": "Mistral Cloud Chat Model",
+      "credentials": {
+        "mistralCloudApi": {
+          "id": "MaJOtBpc20qcQWcv",
+          "name": "Mistral Cloud account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let raw = $json.output || JSON.stringify($json);\nif (typeof raw !== 'string') raw = JSON.stringify(raw);\nraw = raw.replace(/```json/g, '').replace(/```/g, '').trim();\nconst data = JSON.parse(raw);\nconst comprobanteUrl = $('Preparar contexto obra').first().json.comprobanteUrl || '';\nconst uploadedFileId = $('Preparar contexto obra').first().json.uploadedFileId || '';\nreturn [{ json: {\n  tarea: data.tarea || '',\n  concepto: data.concepto || '',\n  proveedor: data.proveedor || '',\n  reciboNro: data.reciboNro || data.id || '',\n  fecha: data.fecha || '',\n  ars: Number(data.ars || 0),\n  comprobanteUrl,\n  uploadedFileId,\n  unclear: data.unclear === true\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        680
+      ],
+      "id": "v2000004-0000-0000-0000-000000000004",
+      "name": "Normalizar extracción"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('⚙️ Config').first().json.sheetObrasId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Activa",
+              "lookupValue": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2352,
+        680
+      ],
+      "id": "065df19a-278a-4dc0-a577-043f4d61dd99",
+      "name": "Consultar obras activas",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EZXZzmdw3CSrBA5p",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const expenseData = $('Normalizar extracción').first().json;\nconst obras = $input.all().map(i => i.json);\n\nconst unclearNote = expenseData.unclear\n  ? '\\n⚠️ Imagen poco clara. Igualmente indicá la obra para archivarla en revisión.\\n'\n  : '';\n\nlet obraLines = '';\nobras.forEach((o, i) => { obraLines += `${i + 1} · ${o.Obra}\\n`; });\n\nconst mensaje = [\n  '📋 Comprobante recibido:',\n  `Proveedor: ${expenseData.proveedor || '(no detectado)'}`,\n  `Monto: $${expenseData.ars || '?'}`,\n  `Fecha: ${expenseData.fecha || '?'}`,\n  `Concepto: ${expenseData.concepto || '?'}`,\n  unclearNote,\n  '¿A qué obra pertenece este comprobante?\\n',\n  obraLines.trim(),\n  '\\n0 · Cancelar',\n  '\\nRespondé con el número.'\n].join('\\n');\n\nreturn [{ json: { mensaje, obras, expenseData } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        680
+      ],
+      "id": "v2000005-0000-0000-0000-000000000005",
+      "name": "Armar menú asignación"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "={{ $('⚙️ Config').first().json.tablaEstadoUsuarioId }}",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chatId",
+              "keyValue": "={{ $('Bot Tetris1').item.json.message.chat.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chatId": "={{ $('Bot Tetris1').item.json.message.chat.id }}",
+            "step": "waiting_assignment",
+            "obrasJson": "={{ JSON.stringify($('Armar menú asignación').item.json.obras) }}",
+            "pendingExpenseJson": "={{ JSON.stringify($('Normalizar extracción').item.json) }}",
+            "uploadedFileId": "={{ $('Preparar contexto obra').item.json.uploadedFileId }}"
+          },
+          "matchingColumns": [
+            "chatId"
+          ],
+          "schema": [
+            {
+              "id": "chatId",
+              "displayName": "chatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "obrasJson",
+              "displayName": "obrasJson",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "pendingExpenseJson",
+              "displayName": "pendingExpenseJson",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "uploadedFileId",
+              "displayName": "uploadedFileId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "selectedObra",
+              "displayName": "selectedObra",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "selectedSpreadsheetId",
+              "displayName": "selectedSpreadsheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "selectedSheetName",
+              "displayName": "selectedSheetName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "operationType",
+              "displayName": "operationType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Interesado",
+              "displayName": "Interesado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "folderFacturasId",
+              "displayName": "folderFacturasId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "folderRevisionId",
+              "displayName": "folderRevisionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2800,
+        680
+      ],
+      "id": "v2000006-0000-0000-0000-000000000006",
+      "name": "Guardar estado waiting_assignment"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Bot Tetris1').item.json.message.chat.id }}",
+        "text": "={{ $('Armar menú asignación').item.json.mensaje }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "none"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3024,
+        680
+      ],
+      "id": "v2000007-0000-0000-0000-000000000007",
+      "name": "Enviar menú asignación",
+      "webhookId": "v2000007-0000-0000-0000-000000000007",
+      "credentials": {
+        "telegramApi": {
+          "id": "7XD1V0MyRbJv632v",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = ($('Preparar entrada').first().json.texto || '').trim();\nconst state = $json;\nconst obras = JSON.parse(state.obrasJson || '[]');\n\nif (text === '0') {\n  return [{ json: { valid: false, cancel: true, message: '' } }];\n}\n\nconst num = parseInt(text, 10);\nif (isNaN(num) || num < 1 || num > obras.length) {\n  return [{ json: { valid: false, cancel: false,\n    message: `⚠️ Número inválido. Respondé del 1 al ${obras.length} o 0 para cancelar.` } }];\n}\n\nconst obraSeleccionada = obras[num - 1];\nreturn [{ json: {\n  valid: true,\n  cancel: false,\n  obraSeleccionada\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        1440
+      ],
+      "id": "v2000008-0000-0000-0000-000000000008",
+      "name": "Validar obra"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "asign-valid-001",
+              "leftValue": "={{ $json.valid === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        1440
+      ],
+      "id": "v2000009-0000-0000-0000-000000000009",
+      "name": "IF obra válida"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cancel-check-v2",
+              "leftValue": "={{ $json.cancel === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1008,
+        1600
+      ],
+      "id": "v2000010-0000-0000-0000-000000000010",
+      "name": "IF es cancelación"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Bot Tetris1').item.json.message.chat.id }}",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "none"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1232,
+        1740
+      ],
+      "id": "v2000011-0000-0000-0000-000000000011",
+      "name": "Error código inválido",
+      "webhookId": "v2000011-0000-0000-0000-000000000011",
+      "credentials": {
+        "telegramApi": {
+          "id": "7XD1V0MyRbJv632v",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "value": "={{ $('⚙️ Config').first().json.tablaEstadoUsuarioId }}",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chatId",
+              "keyValue": "={{ $('Bot Tetris1').item.json.message.chat.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1232,
+        1600
+      ],
+      "id": "aaa00008-0000-0000-0000-000000000008",
+      "name": "Limpiar estado cancelación"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Bot Tetris1').item.json.message.chat.id }}",
+        "text": "❌ Operación cancelada.\n\nPara agregar un gasto, ingresá una foto de la factura.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "none"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1456,
+        1600
+      ],
+      "id": "aaa00007-0000-0000-0000-000000000007",
+      "name": "Aviso cancelación",
+      "webhookId": "aaa00007-0000-0000-0000-000000000007",
+      "credentials": {
+        "telegramApi": {
+          "id": "7XD1V0MyRbJv632v",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const state        = $('Consultar estado usuario').first().json;\nconst tipoData     = $('Validar tipo').first().json;\nconst pendingData  = JSON.parse(state.pendingExpenseJson || '{}');\nconst operationType = tipoData.operationType;\nconst interesado   = state.Interesado || '';\n\nlet tipo, caja;\nif (operationType === 'ingreso')     { tipo = 'Ingreso'; caja = $('⚙️ Config').first().json.cajaDefault; }\nelse if (operationType === 'doble')  { tipo = 'Doble';   caja = interesado; }\nelse                                 { tipo = 'Egreso';  caja = $('⚙️ Config').first().json.cajaDefault; }\n\nreturn [{ json: {\n  tipo, caja,\n  id: '', or: '',\n  tarea:           pendingData.tarea        || '',\n  concepto:        pendingData.concepto     || '',\n  proveedor:       pendingData.proveedor    || '',\n  reciboNro:       pendingData.reciboNro    || '',\n  fecha:           pendingData.fecha        || '',\n  ars:             Number(pendingData.ars   || 0),\n  comprobanteUrl:  pendingData.comprobanteUrl || '',\n  unclear:         pendingData.unclear === true,\n  operationType,\n  selectedObra:          state.selectedObra          || '',\n  selectedSpreadsheetId: state.selectedSpreadsheetId || '',\n  selectedSheetName:     state.selectedSheetName     || '',\n  folderFacturasId:      state.folderFacturasId      || '',\n  folderRevisionId:      state.folderRevisionId      || '',\n  selectedInteresado:    interesado,\n  uploadedFileId:        state.uploadedFileId        || ''\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        1300
+      ],
+      "id": "v2000012-0000-0000-0000-000000000012",
+      "name": "Aplicar asignación"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Aplicar asignación').item.json.uploadedFileId }}",
+          "mode": "id"
+        },
+        "updateFields": {
+          "fileName": "={{ $('Aplicar asignación').item.json.selectedObra }}_{{ $('Aplicar asignación').item.json.unclear ? $now.toFormat('yyyy-MM-dd_HH-mm-ss') : ($('Aplicar asignación').item.json.reciboNro || $now.toFormat('yyyy-MM-dd_HH-mm-ss')) }}.jpg"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1232,
+        1300
+      ],
+      "id": "a0bf3874-fb82-46a8-bc49-9af86ebbfcb3",
+      "name": "Renombrar archivo factura v2",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "hV8sl0WdQmTAcGhM",
+          "name": "Google Drive OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "unclear-v2-001",
+              "leftValue": "={{ $('Aplicar asignación').item.json.unclear === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1456,
+        1300
+      ],
+      "id": "b1000006-0000-0000-0000-000000000006",
+      "name": "IF unclear v2"
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Aplicar asignación').item.json.uploadedFileId }}",
+          "mode": "id"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Aplicar asignación').item.json.folderRevisionId || $('⚙️ Config').first().json.carpetaTempDriveId }}",
+          "mode": "id"
+        },
+        "driveId": {
+          "__rl": true,
+          "value": "={{ $('⚙️ Config').first().json.driveId }}",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1680,
+        1460
+      ],
+      "id": "b1000007-0000-0000-0000-000000000007",
+      "name": "Mover a revisión",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "hV8sl0WdQmTAcGhM",
+          "name": "Google Drive OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Bot Tetris1').item.json.message.chat.id }}",
+        "text": "⚠️ Factura poco clara, se dejó en la carpeta de revisión.\n\nPodés enviar otra foto cuando quieras.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "none"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1904,
+        1460
+      ],
+      "id": "b1000008-0000-0000-0000-000000000008",
+      "name": "Mensaje factura poco clara",
+      "webhookId": "b1000008-0000-0000-0000-000000000008",
+      "credentials": {
+        "telegramApi": {
+          "id": "7XD1V0MyRbJv632v",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "value": "={{ $('⚙️ Config').first().json.tablaEstadoUsuarioId }}",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chatId",
+              "keyValue": "={{ $('Bot Tetris1').item.json.message.chat.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2128,
+        1460
+      ],
+      "id": "b1000009-0000-0000-0000-000000000009",
+      "name": "Limpiar estado revisión"
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Aplicar asignación').item.json.uploadedFileId }}",
+          "mode": "id"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Aplicar asignación').item.json.folderFacturasId || $('⚙️ Config').first().json.carpetaTempDriveId }}",
+          "mode": "id"
+        },
+        "driveId": {
+          "__rl": true,
+          "value": "={{ $('⚙️ Config').first().json.driveId }}",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1680,
+        1140
+      ],
+      "id": "v2000013-0000-0000-0000-000000000013",
+      "name": "Mover a carpeta obra",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "hV8sl0WdQmTAcGhM",
+          "name": "Google Drive OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const gasto = $('Aplicar asignación').item.json;\nconst operationType = gasto.operationType || 'egreso';\nconst interesado = gasto.selectedInteresado || '';\nconst ars = Math.abs(Number(gasto.ars || 0));\n\nif (operationType === 'doble') {\n  return [\n    { json: { ...gasto, tipo: 'Ingreso', ars: ars, caja: interesado } },\n    { json: { ...gasto, tipo: 'Egreso', ars: -ars, caja: interesado } }\n  ];\n} else if (operationType === 'ingreso') {\n  return [{ json: { ...gasto, tipo: 'Ingreso', ars: ars } }];\n} else {\n  return [{ json: { ...gasto, tipo: 'Egreso', ars: -ars } }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        1140
+      ],
+      "id": "c5ae09a2-8c4e-491e-a145-46a6dd9cb50b",
+      "name": "Leer gasto pendiente v2"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Aplicar asignación').item.json.selectedSpreadsheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('Aplicar asignación').item.json.selectedSheetName }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToAutoMapInputData": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2128,
+        1140
+      ],
+      "id": "620e70f9-88eb-497d-b8c5-e0e1c06c9db6",
+      "name": "Agregar gasto",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EZXZzmdw3CSrBA5p",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "value": "={{ $('⚙️ Config').first().json.tablaEstadoUsuarioId }}",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chatId",
+              "keyValue": "={{ $('Bot Tetris1').item.json.message.chat.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2352,
+        1140
+      ],
+      "id": "da898c6f-9f80-45ba-b44a-9a51d8d1b1d4",
+      "name": "Limpiar estado usuario",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Bot Tetris1').item.json.message.chat.id }}",
+        "text": "={{ '✅ Gasto guardado en ' + $('Aplicar asignación').item.json.selectedObra + '\\n' + $('Aplicar asignación').item.json.concepto + ' · $' + Math.abs($('Aplicar asignación').item.json.ars) + '\\n\\nPodés enviar otra foto.' }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "none"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2576,
+        1140
+      ],
+      "id": "7dbfc2a2-2f9c-414d-80e8-093544c25d6d",
+      "name": "Confirmar guardado",
+      "executeOnce": true,
+      "webhookId": "25d87b5c-6d11-47cf-9018-54483558909c",
+      "credentials": {
+        "telegramApi": {
+          "id": "7XD1V0MyRbJv632v",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lee la definición de columnas del Config y arma la fila para la sheet\n// Procesa TODOS los ítems (el caso 'doble' genera 2 registros)\nconst cfg = $('⚙️ Config').first().json;\n\nreturn $input.all().map(item => {\n  const gasto = item.json;\n  const row = {};\n  for (const col of cfg.columnasGasto) {\n    if (col.esHyperlink && col.campoUrl) {\n      const url  = gasto[col.campoUrl] || '';\n      const text = gasto[col.campo]    || '';\n      row[col.columna] = url ? `=HYPERLINK(\"${url}\",\"${text}\")` : text;\n    } else {\n      const val = gasto[col.campo];\n      row[col.columna] = (val !== undefined && val !== null) ? val : '';\n    }\n  }\n  return { json: row };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        1140
+      ],
+      "id": "pfila0000-0000-0000-0000-000000000001",
+      "name": "Preparar fila"
+    },
+    {
+      "parameters": {
+        "jsCode": "const state    = $('Consultar estado usuario').first().json;\nconst obraData = $('Validar obra').first().json.obraSeleccionada;\nconst pending  = JSON.parse(state.pendingExpenseJson || '{}');\n\nconst mensaje = [\n  '📋 Datos del comprobante:',\n  `Proveedor: ${pending.proveedor || '(no detectado)'}`,\n  `Monto: $${pending.ars || '?'}`,\n  `Fecha: ${pending.fecha || '?'}`,\n  `Concepto: ${pending.concepto || '?'}`,\n  '',\n  `🏗️ Obra: ${obraData.Obra}`,\n  '',\n  '¿Tipo de operación?',\n  '1 · Egreso',\n  '2 · Ingreso',\n  '3 · Pago cliente (doble)',\n  '0 · Cancelar',\n  '',\n  'Respondé con el número.'\n].join('\\n');\n\nreturn [{ json: { mensaje, obraSeleccionada: obraData } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        1440
+      ],
+      "id": "armartipo-0000-0000-0000-000000000001",
+      "name": "Armar menú tipo"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "={{ $('⚙️ Config').first().json.tablaEstadoUsuarioId }}",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chatId",
+              "keyValue": "={{ $('Bot Tetris1').item.json.message.chat.id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chatId": "={{ $('Bot Tetris1').item.json.message.chat.id }}",
+            "step": "waiting_type",
+            "selectedObra": "={{ $('Armar menú tipo').item.json.obraSeleccionada.Obra }}",
+            "selectedSpreadsheetId": "={{ $('Armar menú tipo').item.json.obraSeleccionada.SpreadsheetId }}",
+            "selectedSheetName": "={{ $('Armar menú tipo').item.json.obraSeleccionada.SheetName }}",
+            "Interesado": "={{ $('Armar menú tipo').item.json.obraSeleccionada.Interesado || '' }}",
+            "folderFacturasId": "={{ $('Armar menú tipo').item.json.obraSeleccionada.FolderFacturasId || '' }}",
+            "folderRevisionId": "={{ $('Armar menú tipo').item.json.obraSeleccionada.FolderRevisionId || '' }}"
+          },
+          "matchingColumns": [
+            "chatId"
+          ],
+          "schema": [
+            {
+              "id": "chatId",
+              "displayName": "chatId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "obrasJson",
+              "displayName": "obrasJson",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "pendingExpenseJson",
+              "displayName": "pendingExpenseJson",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "uploadedFileId",
+              "displayName": "uploadedFileId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "selectedObra",
+              "displayName": "selectedObra",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "selectedSpreadsheetId",
+              "displayName": "selectedSpreadsheetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "selectedSheetName",
+              "displayName": "selectedSheetName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Interesado",
+              "displayName": "Interesado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "folderFacturasId",
+              "displayName": "folderFacturasId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "folderRevisionId",
+              "displayName": "folderRevisionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1232,
+        1440
+      ],
+      "id": "guardtipo-0000-0000-0000-000000000001",
+      "name": "Guardar estado waiting_type",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Bot Tetris1').item.json.message.chat.id }}",
+        "text": "={{ $('Armar menú tipo').item.json.mensaje }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "none"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1456,
+        1440
+      ],
+      "id": "enviartipo-0000-0000-0000-000000000001",
+      "name": "Enviar menú tipo",
+      "credentials": {
+        "telegramApi": {
+          "id": "7XD1V0MyRbJv632v",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = ($('Preparar entrada').first().json.texto || '').trim();\n\nif (text === '0') {\n  return [{ json: { valid: false, cancel: true, message: '' } }];\n}\n\nconst map = { '1': 'egreso', '2': 'ingreso', '3': 'doble' };\nconst operationType = map[text];\n\nif (!operationType) {\n  return [{ json: { valid: false, cancel: false,\n    message: '⚠️ Opción inválida. Respondé 1 (Egreso), 2 (Ingreso), 3 (Pago cliente) o 0 para cancelar.' } }];\n}\n\nreturn [{ json: { valid: true, cancel: false, operationType } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        1600
+      ],
+      "id": "validtipo-0000-0000-0000-000000000001",
+      "name": "Validar tipo"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "tipo-valid-001",
+              "leftValue": "={{ $json.valid === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        784,
+        1600
+      ],
+      "id": "iftipo0000-0000-0000-0000-000000000001",
+      "name": "IF tipo válido"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Bot Tetris1": {
+      "main": [
+        [
+          {
+            "node": "⚙️ Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar entrada": {
+      "main": [
+        [
+          {
+            "node": "Consultar estado usuario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar estado usuario": {
+      "main": [
+        [
+          {
+            "node": "Preparar estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar estado": {
+      "main": [
+        [
+          {
+            "node": "IF sesión expirada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF sesión expirada": {
+      "main": [
+        [
+          {
+            "node": "Limpiar estado expirado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Router Estado v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limpiar estado expirado": {
+      "main": [
+        [
+          {
+            "node": "Aviso sesión expirada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router Estado v2": {
+      "main": [
+        [
+          {
+            "node": "IF tiene foto v2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validar obra",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validar tipo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF tiene foto v2": {
+      "main": [
+        [
+          {
+            "node": "Validar permiso",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mensaje bienvenida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar permiso": {
+      "main": [
+        [
+          {
+            "node": "Get a file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a file": {
+      "main": [
+        [
+          {
+            "node": "Upload file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload file": {
+      "main": [
+        [
+          {
+            "node": "Preparar contexto obra",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar contexto obra": {
+      "main": [
+        [
+          {
+            "node": "Extraer texto Mistral",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer texto Mistral": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mistral Cloud Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Normalizar extracción",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar extracción": {
+      "main": [
+        [
+          {
+            "node": "Consultar obras activas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar obras activas": {
+      "main": [
+        [
+          {
+            "node": "Armar menú asignación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar menú asignación": {
+      "main": [
+        [
+          {
+            "node": "Guardar estado waiting_assignment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar estado waiting_assignment": {
+      "main": [
+        [
+          {
+            "node": "Enviar menú asignación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF es cancelación": {
+      "main": [
+        [
+          {
+            "node": "Limpiar estado cancelación",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error código inválido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limpiar estado cancelación": {
+      "main": [
+        [
+          {
+            "node": "Aviso cancelación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aplicar asignación": {
+      "main": [
+        [
+          {
+            "node": "Renombrar archivo factura v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Renombrar archivo factura v2": {
+      "main": [
+        [
+          {
+            "node": "IF unclear v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF unclear v2": {
+      "main": [
+        [
+          {
+            "node": "Mover a revisión",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mover a carpeta obra",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mover a revisión": {
+      "main": [
+        [
+          {
+            "node": "Mensaje factura poco clara",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensaje factura poco clara": {
+      "main": [
+        [
+          {
+            "node": "Limpiar estado revisión",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mover a carpeta obra": {
+      "main": [
+        [
+          {
+            "node": "Leer gasto pendiente v2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer gasto pendiente v2": {
+      "main": [
+        [
+          {
+            "node": "Preparar fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agregar gasto": {
+      "main": [
+        [
+          {
+            "node": "Limpiar estado usuario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limpiar estado usuario": {
+      "main": [
+        [
+          {
+            "node": "Confirmar guardado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚙️ Config": {
+      "main": [
+        [
+          {
+            "node": "Preparar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar fila": {
+      "main": [
+        [
+          {
+            "node": "Agregar gasto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar obra": {
+      "main": [
+        [
+          {
+            "node": "IF obra válida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF obra válida": {
+      "main": [
+        [
+          {
+            "node": "Armar menú tipo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF es cancelación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar menú tipo": {
+      "main": [
+        [
+          {
+            "node": "Guardar estado waiting_type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar estado waiting_type": {
+      "main": [
+        [
+          {
+            "node": "Enviar menú tipo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar tipo": {
+      "main": [
+        [
+          {
+            "node": "IF tipo válido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF tipo válido": {
+      "main": [
+        [
+          {
+            "node": "Aplicar asignación",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF es cancelación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "v2-flujo-rapido-001",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7baefe39df3edbf098c2953cdcf3fc0832a183d41d1617598f12aec037b4151d"
+  },
+  "id": "",
+  "tags": []
+}
