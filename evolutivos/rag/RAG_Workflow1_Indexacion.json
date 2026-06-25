@@ -1,0 +1,169 @@
+{
+  "name": "RAG Vault — Workflow 1: Indexación",
+  "nodes": [
+    {
+      "id": "a1b2c3d4-0001-0001-0001-000000000001",
+      "name": "GitHub Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vault-indexar",
+        "responseMode": "onReceived",
+        "responseData": "firstEntryJson"
+      }
+    },
+    {
+      "id": "a1b2c3d4-0001-0001-0001-000000000002",
+      "name": "Extraer archivos cambiados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300],
+      "parameters": {
+        "jsCode": "// Extrae los .md modificados del payload de GitHub\nconst commits = $input.first().json.commits || [];\nconst files = new Set();\n\nfor (const commit of commits) {\n  [...(commit.added || []), ...(commit.modified || [])].forEach(f => {\n    if (f.endsWith('.md') && (f.startsWith('02_Wiki/') || f.startsWith('01_Sources/'))) {\n      files.add(f);\n    }\n  });\n}\n\nif (files.size === 0) {\n  // Si no hay archivos .md, terminar\n  return [];\n}\n\nreturn [...files].map(path => {\n  const parts = path.split('/');\n  const layer = parts[0] === '02_Wiki' ? 'wiki' : 'sources';\n  const category = parts[1] || 'general';\n  const fileId = path\n    .replace(/\\.md$/, '')\n    .replace(/\\//g, '-')\n    .toLowerCase()\n    .replace(/[^a-z0-9-]/g, '');\n  return { json: { path, file_id: fileId, layer, category } };\n});"
+      }
+    },
+    {
+      "id": "a1b2c3d4-0001-0001-0001-000000000003",
+      "name": "Borrar chunks viejos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 300],
+      "parameters": {
+        "method": "DELETE",
+        "url": "=https://YOUR_SUPABASE_URL/rest/v1/vault_chunks",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "YOUR_SUPABASE_ANON_KEY" },
+            { "name": "Authorization", "value": "Bearer YOUR_SUPABASE_ANON_KEY" }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "file_id", "value": "=eq.{{ $json.file_id }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1b2c3d4-0001-0001-0001-000000000004",
+      "name": "Obtener contenido del archivo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/{{ $('Extraer archivos cambiados').item.json.path }}"
+      }
+    },
+    {
+      "id": "a1b2c3d4-0001-0001-0001-000000000005",
+      "name": "Chunkar texto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 300],
+      "parameters": {
+        "jsCode": "const rawContent = $input.first().json.data || $input.first().json.body || '';\nconst meta = $('Extraer archivos cambiados').item.json;\n\nconst chunkSize = 1800;\nconst overlap = 200;\nconst chunks = [];\n\nfor (let i = 0; i < rawContent.length; i += chunkSize - overlap) {\n  const chunk = rawContent.slice(i, i + chunkSize).trim();\n  if (chunk.length < 80) continue;\n  chunks.push({\n    json: {\n      content: chunk,\n      file_id: meta.file_id,\n      file_path: meta.path,\n      layer: meta.layer,\n      category: meta.category\n    }\n  });\n}\n\nif (chunks.length === 0 && rawContent.trim().length > 0) {\n  chunks.push({\n    json: {\n      content: rawContent.trim(),\n      file_id: meta.file_id,\n      file_path: meta.path,\n      layer: meta.layer,\n      category: meta.category\n    }\n  });\n}\n\nreturn chunks;"
+      }
+    },
+    {
+      "id": "a1b2c3d4-0001-0001-0001-000000000006",
+      "name": "Generar embeddings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1360, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer YOUR_OPENAI_API_KEY" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'text-embedding-3-small', input: $json.content }) }}"
+      }
+    },
+    {
+      "id": "a1b2c3d4-0001-0001-0001-000000000007",
+      "name": "Insertar en Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1580, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://YOUR_SUPABASE_URL/rest/v1/vault_chunks",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "YOUR_SUPABASE_ANON_KEY" },
+            { "name": "Authorization", "value": "Bearer YOUR_SUPABASE_ANON_KEY" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $('Chunkar texto').item.json.content, embedding: $json.data[0].embedding, file_id: $('Chunkar texto').item.json.file_id, file_path: $('Chunkar texto').item.json.file_path, layer: $('Chunkar texto').item.json.layer, category: $('Chunkar texto').item.json.category }) }}"
+      }
+    },
+    {
+      "id": "a1b2c3d4-0001-0001-0001-000000000008",
+      "name": "Actualizar timestamp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1800, 300],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://YOUR_SUPABASE_URL/rest/v1/vault_meta?key=eq.last_indexed_at",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "YOUR_SUPABASE_ANON_KEY" },
+            { "name": "Authorization", "value": "Bearer YOUR_SUPABASE_ANON_KEY" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ value: new Date().toISOString() }) }}"
+      }
+    }
+  ],
+  "connections": {
+    "GitHub Webhook": {
+      "main": [[{ "node": "Extraer archivos cambiados", "type": "main", "index": 0 }]]
+    },
+    "Extraer archivos cambiados": {
+      "main": [[{ "node": "Borrar chunks viejos", "type": "main", "index": 0 }]]
+    },
+    "Borrar chunks viejos": {
+      "main": [[{ "node": "Obtener contenido del archivo", "type": "main", "index": 0 }]]
+    },
+    "Obtener contenido del archivo": {
+      "main": [[{ "node": "Chunkar texto", "type": "main", "index": 0 }]]
+    },
+    "Chunkar texto": {
+      "main": [[{ "node": "Generar embeddings", "type": "main", "index": 0 }]]
+    },
+    "Generar embeddings": {
+      "main": [[{ "node": "Insertar en Supabase", "type": "main", "index": 0 }]]
+    },
+    "Insertar en Supabase": {
+      "main": [[{ "node": "Actualizar timestamp", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
