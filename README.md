@@ -8,9 +8,10 @@ Este repositorio organiza los flujos de n8n por cliente para mantenerlos version
 clientes/
   tetris/
     README.md
-    Extractor_de_Facturas_WhatsApp.json
-    Extractor_Facturas_Telegram_Mistral_Config.json
-    Extractor_Facturas_Telegram_v3_DosSteps.json
+    n8n/
+      Extractor_de_Facturas_WhatsApp.json
+      Extractor_Facturas_Telegram_Mistral_Config.json
+      Extractor_Facturas_Telegram_v3_DosSteps.json
 ```
 
 ## Cómo añadir un nuevo cliente
