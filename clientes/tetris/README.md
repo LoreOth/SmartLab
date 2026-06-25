@@ -38,24 +38,35 @@ clientes/
 4. Activar el workflow solo cuando las conexiones externas estén listas.
 5. Si se mueve un JSON a otra carpeta o se cambia el nombre, actualizar esa referencia en el README y en la organización del repositorio.
 
-## Diagrama de estructura y uso
+## Diagrama de estructura de carpetas y archivos
 
-```mermaid
-flowchart TD
-  A[Repositorio SmartLab] --> B[clientes]
-  B --> C[tetris]
-  C --> D[README del cliente]
-  C --> E[n8n]
-  E --> F[Extractor_de_Facturas_WhatsApp.json]
-  E --> G[Extractor_Facturas_Telegram_Mistral_Config.json]
-  E --> H[Extractor_Facturas_Telegram_v3_DosSteps.json]
-  F --> I[Importar en n8n]
-  G --> I
-  H --> I
-  I --> J[Configurar credenciales]
-  J --> K[Activar workflow]
-  K --> L[Procesar mensajes y facturas]
+```text
+SmartLab/
+├── README.md
+├── clientes/
+│   └── tetris/
+│       ├── README.md
+│       └── n8n/
+│           ├── Extractor_de_Facturas_WhatsApp.json
+│           ├── Extractor_Facturas_Telegram_Mistral_Config.json
+│           └── Extractor_Facturas_Telegram_v3_DosSteps.json
 ```
+
+### Qué debe existir para que el flujo funcione
+
+- Carpeta raíz del repositorio: `SmartLab/`
+- Carpeta `clientes/` para agrupar todos los clientes
+- Carpeta específica del cliente: `clientes/tetris/`
+- Archivo `README.md` del cliente con la descripción breve
+- Carpeta `n8n/` dentro del cliente donde deben quedar los workflows exportados
+- Los archivos JSON de cada workflow dentro de `clientes/tetris/n8n/`
+
+### Qué se necesita al importar en n8n
+
+- Un workflow por cada JSON
+- Credenciales de WhatsApp o Telegram configuradas en n8n
+- Variables o datos de entorno si el flujo los requiere
+- El workflow activado solo cuando las integraciones estén listas
 
 ## Diagramas conceptuales
 
